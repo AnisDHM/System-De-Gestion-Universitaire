@@ -1,240 +1,181 @@
+// StudentController.java
 package controller;
+
 import model.dao.DataManager;
-import model.entities.*;
-import model.observers.GradeSubject;
+import model.entities.Student;
+import model.entities.User;
+import model.entities.Grade;
 import view.StudentView;
-import view.LoginView;
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.util.List;
-/**
- * Contrôleur pour l'étudiant
- * 
- * Responsabilités:
- * - Charger les données de l'étudiant (notes, absences, inscriptions)
- * - Gérer les inscriptions aux modules
- * - Calculer les moyennes
- * - Gérer la déconnexion
- */
 
-public class StudentController implements PropertyChangeListener{
+public class StudentController {
     private StudentView view;
-    private User currentUser;
+    private Student student;
     private DataManager dataManager;
-    private GradeSubject gradeSubject;
 
-    public StudentController(StudentView view, User currentUser) {
+    public StudentController(StudentView view, User user) {
         this.view = view;
-        this.currentUser = currentUser;
+        this.student = (Student) user;
         this.dataManager = DataManager.getInstance();
-        this.gradeSubject = new GradeSubject();
-        gradeSubject.attach(view);
-        view.addPropertyChangeListener(this);
+        initController();
         loadStudentData();
+    }
+
+    private void initController() {
+        // Use reflection to access the private button since we don't have getters
+        try {
+            java.lang.reflect.Field buttonField = StudentView.class.getDeclaredField("consulterNotesBtn");
+            buttonField.setAccessible(true);
+            JButton consulterNotesBtn = (JButton) buttonField.get(view);
+            
+            consulterNotesBtn.addActionListener(new ConsulterNotesAction());
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            // Fallback: find button by component traversal
+            findAndBindButton();
+        }
+    }
+
+    private void findAndBindButton() {
+        // Alternative method to find the button
+        JPanel mainPanel = (JPanel) view.getContentPane().getComponent(0);
+        JPanel leftPanel = (JPanel) mainPanel.getComponent(0);
         
-        System.out.println("StudentController initialisé pour: " + currentUser.getFullName());
+        findButtonInContainer(leftPanel);
+    }
+
+    private void findButtonInContainer(Container container) {
+        for (Component comp : container.getComponents()) {
+            if (comp instanceof JButton) {
+                JButton button = (JButton) comp;
+                if ("Consulter Notes".equals(button.getText())) {
+                    button.addActionListener(new ConsulterNotesAction());
+                    return;
+                }
+            } else if (comp instanceof Container) {
+                findButtonInContainer((Container) comp);
+            }
+        }
     }
 
     private void loadStudentData() {
-        String studentCode = currentUser.getCode();
-        
         try {
+            // Use reflection to access the labels
+            java.lang.reflect.Field nameField = StudentView.class.getDeclaredField("studentNameLabel");
+            java.lang.reflect.Field idField = StudentView.class.getDeclaredField("studentIdLabel");
             
-            List<Grade> grades = dataManager.getStudentGrades(studentCode);
-            view.displayGrades(grades);
-            System.out.println( grades.size() + " notes chargées");
+            nameField.setAccessible(true);
+            idField.setAccessible(true);
             
-            List<Absence> absences = dataManager.getStudentAbsences(studentCode);
-            view.displayAbsences(absences);
-            System.out.println(absences.size() + " absences chargées");
+            JLabel nameLabel = (JLabel) nameField.get(view);
+            JLabel idLabel = (JLabel) idField.get(view);
             
-            List<model.entities.Module> modules = dataManager.getAllModules();
-            view.displayAvailableModules(modules);
-            System.out.println( modules.size() + " modules disponibles");
-            
-            loadInscriptions();
+            // Set student information
+            nameLabel.setText("Nom: " + student.getFullName());
+            idLabel.setText("ID_ETUDIANT: " + student.getCode());
             
         } catch (Exception e) {
-            System.err.println("Erreur lors du chargement des données: " + e.getMessage());
             e.printStackTrace();
-        }
-    }
-    private void loadInscriptions() {
-        String studentCode = currentUser.getCode();
-        List<Inscription> inscriptions = dataManager.getStudentInscriptions(studentCode);
-        
-        StringBuilder text = new StringBuilder();
-        text.append("═══════════════════════════════\n");
-        text.append("       MES INSCRIPTIONS\n");
-        text.append("═══════════════════════════════\n\n");
-        
-        if (inscriptions.isEmpty()) {
-            text.append("Aucune inscription pour le moment.\n\n");
-            text.append("Conseil: Inscrivez-vous aux modules\n");
-            text.append("dans l'onglet 'Inscription'.\n");
-        } else {
-            int validees = 0;
-            int enAttente = 0;
-            
-            for (Inscription inscription : inscriptions) {
-                model.entities.Module module = dataManager.getModule(inscription.getModuleCode());
-                if (module != null) {
-                    String status = inscription.isValidated() ? "Validée" : "En attente";
-                    
-                    text.append("• ").append(module.getName());
-                    text.append(" (").append(module.getCode()).append(")");
-                    text.append("\n  └─ ").append(status);
-                    text.append(" - ").append(module.getCredits()).append(" crédits");
-                    text.append("\n\n");
-                    
-                    if (inscription.isValidated()) {
-                        validees++;
-                    } else {
-                        enAttente++;
-                    }
-                }
-            }
-            
-            text.append("───────────────────────────────\n");
-            text.append("Total: ").append(inscriptions.size()).append(" inscriptions\n");
-            text.append("  • Validées: ").append(validees).append("\n");
-            text.append("  • En attente: ").append(enAttente).append("\n");
-        }
-        
-        view.updateInscriptions(text.toString());
-    }
-    
-    /**
-     * Gestion des événements de la vue (patron PropertyChange)
-     */
-    @Override
-    public void propertyChange(PropertyChangeEvent evt) {
-        String propertyName = evt.getPropertyName();
-        Object newValue = evt.getNewValue();
-        
-        switch (propertyName) {
-            case "register":
-                handleRegistration((String) newValue);
-                break;
-                
-            case "logout":
-                handleLogout();
-                break;
-                
-            case "refresh":
-                loadStudentData();
-                break;
-                
-            default:
-                System.out.println("⚠️ Événement non géré: " + propertyName);
-                break;
         }
     }
 
-    private void handleRegistration(String selectedModule) {
-        if (selectedModule == null || selectedModule.isEmpty()) {
-            view.showError("Veuillez sélectionner un module");
-            return;
+    private class ConsulterNotesAction implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            showGradesDialog();
         }
-        
+    }
+
+    private void showGradesDialog() {
         try {
+            // Get grades for this student
+            List<Grade> grades = dataManager.getStudentGrades(student.getCode());
             
-            String moduleCode;
-            if (selectedModule.contains(" - ")) {
-                moduleCode = selectedModule.substring(0, selectedModule.indexOf(" - ")).trim();
-            } else {
-                moduleCode = selectedModule.trim();
+            if (grades.isEmpty()) {
+                JOptionPane.showMessageDialog(view, 
+                    "Aucune note disponible pour le moment.", 
+                    "Information", 
+                    JOptionPane.INFORMATION_MESSAGE);
+                return;
             }
+
+            // Create grades dialog
+            JDialog gradesDialog = createGradesDialog(grades);
+            gradesDialog.setVisible(true);
             
-            String studentCode = currentUser.getCode();
-            
-            
-            List<Inscription> inscriptions = dataManager.getStudentInscriptions(studentCode);
-            for (Inscription insc : inscriptions) {
-                if (insc.getModuleCode().equals(moduleCode)) {
-                    view.showError("Vous êtes déjà inscrit à ce module.\n\n" +
-                                  "Statut: " + (insc.isValidated() ? "Validée" : "En attente de validation"));
-                    return;
-                }
-            }
-            
-            
-            Inscription inscription = new Inscription(studentCode, moduleCode);
-            dataManager.addInscription(inscription);
-            
-            
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(view, 
+                "Erreur lors du chargement des notes: " + e.getMessage(), 
+                "Erreur", 
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private JDialog createGradesDialog(List<Grade> grades) {
+        JDialog dialog = new JDialog(view, "Mes Notes", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(600, 400);
+        dialog.setLocationRelativeTo(view);
+
+        // Create title
+        JLabel titleLabel = new JLabel("Notes de " + student.getFullName(), JLabel.CENTER);
+        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
+        dialog.add(titleLabel, BorderLayout.NORTH);
+
+        // Create table model
+        String[] columns = {"Module", "Code Module", "Note", "Type", "Date", "Mention"};
+        Object[][] data = new Object[grades.size()][columns.length];
+        
+        double total = 0;
+        for (int i = 0; i < grades.size(); i++) {
+            Grade grade = grades.get(i);
+            data[i][0] = getModuleName(grade.getModuleCode());
+            data[i][1] = grade.getModuleCode();
+            data[i][2] = String.format("%.2f/20", grade.getValue());
+            data[i][3] = grade.getType();
+            data[i][4] = grade.getFormattedDate();
+            data[i][5] = grade.getMention();
+            total += grade.getValue();
+        }
+
+        JTable table = new JTable(data, columns);
+        table.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        table.setRowHeight(25);
+        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+        
+        JScrollPane scrollPane = new JScrollPane(table);
+        dialog.add(scrollPane, BorderLayout.CENTER);
+
+        // Add summary panel
+        JPanel summaryPanel = new JPanel(new GridLayout(2, 2, 10, 5));
+        summaryPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        
+        double average = grades.isEmpty() ? 0 : total / grades.size();
+        
+        summaryPanel.add(new JLabel("Nombre de notes:"));
+        summaryPanel.add(new JLabel(String.valueOf(grades.size())));
+        summaryPanel.add(new JLabel("Moyenne générale:"));
+        summaryPanel.add(new JLabel(String.format("%.2f/20", average)));
+        
+        dialog.add(summaryPanel, BorderLayout.SOUTH);
+
+        return dialog;
+    }
+
+    private String getModuleName(String moduleCode) {
+        try {
             model.entities.Module module = dataManager.getModule(moduleCode);
-            String moduleName = module != null ? module.getName() : moduleCode;
-            
-            view.showMessage("Inscription réussie!\n\n" +
-                           "Module: " + moduleName + "\n" +
-                           "Statut: En attente de validation par l'administration.\n\n" +
-                           "Vous serez notifié une fois validée.");
-            
-            
-            loadInscriptions();
-            
-            System.out.println("Inscription ajoutée: " + studentCode + " → " + moduleCode);
-            
+            return module != null ? module.getName() : moduleCode;
         } catch (Exception e) {
-            view.showError("Erreur lors de l'inscription:\n" + e.getMessage());
-            e.printStackTrace();
+            return moduleCode;
         }
     }
-    private void handleLogout() {
-        try {
-            
-            dataManager.saveAllData();
-            System.out.println("Données sauvegardées");
-            
-            
-            gradeSubject.detach(view);
-            
-            
-            view.dispose();
-            System.out.println("Déconnexion de: " + currentUser.getFullName());
-            
-            
-            LoginView loginView = new LoginView();
-            new LoginController(loginView);
-            loginView.setVisible(true);
-            
-        } catch (Exception e) {
-            System.err.println("Erreur lors de la déconnexion: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-    public void refreshData() {
-        loadStudentData();
-    }
-   
-    public double calculateAverage() {
-        List<Grade> grades = dataManager.getStudentGrades(currentUser.getCode());
-        if (grades.isEmpty()) {
-            return 0.0;
-        }
-        
-        double sum = 0.0;
-        for (Grade grade : grades) {
-            sum += grade.getValue();
-        }
-        return sum / grades.size();
-    }
-    
-    public int countUnjustifiedAbsences() {
-        List<Absence> absences = dataManager.getStudentAbsences(currentUser.getCode());
-        int count = 0;
-        for (Absence absence : absences) {
-            if (!absence.isJustified()) {
-                count++;
-            }
-        }
-        return count;
-    }
-    public void cleanup() {
-        if (gradeSubject != null && view != null) {
-            gradeSubject.detach(view);
-        }
-    }
-    
 }
